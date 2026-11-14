@@ -2,6 +2,8 @@
 
 **Fecha:** 4 de septiembre de 2026
 
+> **Nota de vigencia:** el cuerpo histórico de este informe describe la versión con datos simulados. La implementación actual de recepción serial y su alcance de solo lectura se documentan en la sección [Estado actual de la implementación](#estado-actual-de-la-implementación) y en [SERIAL_PROTOCOL.md](SERIAL_PROTOCOL.md).
+
 La interfaz desarrollada actualmente corresponde a un sistema HMI para la supervisión y operación de un turborreactor. El programa inicia con una pantalla de preparación y encendido, en la que se ejecuta una secuencia de verificaciones previas antes de habilitar el arranque del motor. Posteriormente, el usuario accede a la pantalla principal de operación.
 
 La aplicación está organizada de forma modular: el punto de entrada coordina la ventana de inicio, la ventana principal, la generación de datos y el registro de las sesiones; el estado del motor centraliza las variables y los límites de alarma; y los paneles y widgets separan la presentación de datos, los controles, las alarmas y las gráficas. Esta organización facilita modificar un componente sin afectar toda la interfaz y deja preparada la sustitución de los datos simulados por una fuente de comunicación real.
@@ -55,3 +57,9 @@ Las siguientes fuentes se utilizaron como referencia conceptual y técnica para 
 3. Python Software Foundation. *csv — CSV File Reading and Writing*. Referencia para la generación y escritura de los archivos de registro de las sesiones: https://docs.python.org/3/library/csv.html
 
 Estas referencias respaldan los conceptos generales y las herramientas empleadas; los valores, límites, datos de prueba y distribución específica descritos en este informe corresponden al prototipo desarrollado para el proyecto.
+
+## Estado actual de la implementación
+
+La descripción anterior documenta la versión de demostración con datos simulados y controles de interfaz. La implementación actual reemplaza esa fuente por recepción serial de telemetría de solo lectura y elimina las pantallas y controles de operación. El formato acordado para la ESP32-S3 está en [SERIAL_PROTOCOL.md](SERIAL_PROTOCOL.md). La interfaz muestra únicamente alarmas reportadas por la ESP32; no define umbrales, no envía comandos y no sustituye las protecciones independientes del controlador. Los perfiles de configuración quedan fuera de esta etapa.
+
+El registrador CSV actual guarda tiempo, secuencia y T1–T5, MAF, RPM y MQ6-1/MQ6-2 por sesión conectada. Sin conexión serial, la interfaz indica que no hay telemetría y no genera datos ficticios.
