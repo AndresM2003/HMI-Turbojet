@@ -60,6 +60,6 @@ Estas referencias respaldan los conceptos generales y las herramientas empleadas
 
 ## Estado actual de la implementación
 
-La descripción anterior documenta la versión de demostración con datos simulados y controles de interfaz. La implementación actual reemplaza esa fuente por recepción serial de telemetría de solo lectura y elimina las pantallas y controles de operación. El formato acordado para la ESP32-S3 está en [SERIAL_PROTOCOL.md](SERIAL_PROTOCOL.md). La interfaz muestra únicamente alarmas reportadas por la ESP32; no define umbrales, no envía comandos y no sustituye las protecciones independientes del controlador. Los perfiles de configuración quedan fuera de esta etapa.
+La descripción anterior documenta la versión de demostración con datos simulados y controles de interfaz. La implementación actual reemplaza esa fuente por recepción serial de telemetría de solo lectura y presenta pestañas OVERVIEW, TEMPERATURES, FUEL & SAFETY, TRENDS y ALARMS, con un mimic del proceso, perfil térmico y banner de alarmas. El formato acordado para la ESP32-S3 está en [SERIAL_PROTOCOL.md](SERIAL_PROTOCOL.md). La interfaz muestra únicamente alarmas reportadas por la ESP32; no define umbrales, no envía comandos y no sustituye las protecciones independientes del controlador. Los perfiles de configuración quedan fuera de esta etapa.
 
 El registrador CSV actual guarda tiempo, secuencia y T1–T5, MAF, RPM y MQ6-1/MQ6-2 por sesión conectada. Sin conexión serial, la interfaz indica que no hay telemetría y no genera datos ficticios.

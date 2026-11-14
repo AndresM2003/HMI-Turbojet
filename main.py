@@ -3,6 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from PyQt6.QtGui import QFont, QFontDatabase
 from PyQt6.QtWidgets import QApplication
 
 from ui.main_window import MainWindow
@@ -11,6 +12,12 @@ from ui.main_window import MainWindow
 def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    segoe_font = os.path.join(
+        os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "segoeui.ttf"
+    )
+    if os.path.isfile(segoe_font):
+        QFontDatabase.addApplicationFont(segoe_font)
+    app.setFont(QFont("Segoe UI", 9))
     app.setStyleSheet("""
         QToolTip {
             color: #FFFFFF;
