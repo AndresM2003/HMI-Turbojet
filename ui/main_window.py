@@ -2,7 +2,7 @@ import time
 from datetime import datetime
 
 import pyqtgraph as pg
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -24,8 +24,14 @@ from serial.tools import list_ports
 from com.serial_reader import SerialTelemetryReader
 from core.data_logger import DataLogger
 from core.telemetry_protocol import SENSOR_FIELDS
+from ui.action_log import ActionLog
+from ui.command_center import CommandCenter
+from ui.control_panel import ControlPanel
+from ui.theme import accent_for_title
 from widgets.hmi_visuals import ProcessMimic, RPMGauge
 
+
+pg.setConfigOption("foreground", "#3E4A51")  # texto de leyendas y ejes sobre fondo claro
 
 _TEMP_FIELDS = ("t1_c", "t2_c", "t3_c", "t4_c", "t5_c")
 _TEMP_LABELS = {
@@ -35,40 +41,43 @@ _TEMP_LABELS = {
     "t4_c": "T4  Turbine inlet",
     "t5_c": "T5  Oil",
 }
-_DARK_STYLE = """
-    QMainWindow, QWidget { background: #202529; color: #D1D7DA; }
-    QFrame#card { background: #292F34; border: 1px solid #485158; }
+_LIGHT_STYLE = """
+    QMainWindow, QWidget { background: #E4E7E9; color: #1F2A30; }
+    QFrame#card { background: #F6F7F8; border: 1px solid #B3BBC1; }
     QLabel { background: transparent; }
     QPushButton, QComboBox {
-        background: #30373C; border: 1px solid #586168; padding: 5px 8px;
-        color: #D1D7DA;
+        background: #EEF0F2; border: 1px solid #9AA4AB; padding: 5px 8px;
+        color: #1F2A30;
     }
-    QPushButton:hover { border-color: #70A9CF; }
-    QPushButton:disabled { color: #788187; }
-    QTabWidget::pane { border: 0; background: #202529; }
-    QTabBar { background: #171B1E; }
+    QPushButton:hover { border-color: #1F6FA8; }
+    QPushButton:disabled { color: #7B868D; }
+    QTabWidget::pane { border: 0; background: #E4E7E9; }
+    QTabBar { background: #D2D7DB; }
     QTabBar::tab {
-        background: #171B1E; color: #9BA5AA; padding: 12px 17px;
-        border: 0; border-right: 1px solid #252B2F;
+        background: #D2D7DB; color: #55626A; padding: 12px 17px;
+        border: 0; border-right: 1px solid #C4CACE;
     }
     QTabBar::tab:selected {
-        color: #7DB8DF; background: #252B30;
-        border: 1px solid #70A9CF; border-bottom: 2px solid #70A9CF;
+        color: #1F6FA8; background: #FFFFFF;
+        border: 1px solid #1F6FA8; border-bottom: 2px solid #1F6FA8;
     }
-    QListWidget { background: #292F34; border: 1px solid #485158; }
+    QListWidget { background: #F6F7F8; border: 1px solid #B3BBC1; }
     QComboBox QAbstractItemView {
-        background: #292F34; color: #D1D7DA; selection-background-color: #455660;
+        background: #F6F7F8; color: #1F2A30; selection-background-color: #BFD6E6;
     }
 """
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    shutdown_requested = pyqtSignal()
+
+    def __init__(self, commands: CommandCenter | None = None):
         super().__init__()
+        self.commands = commands or CommandCenter()
         self.setWindowTitle("Turbojet Control System")
         self.resize(1360, 800)
         self.setMinimumSize(1160, 680)
-        self.setStyleSheet(_DARK_STYLE)
+        self.setStyleSheet(_LIGHT_STYLE)
 
         self.reader: SerialTelemetryReader | None = None
         self.logger = DataLogger()
@@ -114,7 +123,7 @@ class MainWindow(QMainWindow):
         self.footer.setFixedHeight(28)
         self.footer.setContentsMargins(12, 0, 12, 0)
         self.footer.setStyleSheet(
-            "background: #171B1E; color: #A3ADB2; font-size: 10px;"
+            "background: #D4E3EE; color: #34505F; font-size: 10px;"
         )
         layout.addWidget(self.footer)
 
@@ -131,14 +140,14 @@ class MainWindow(QMainWindow):
     def _build_header(self) -> QWidget:
         header = QFrame()
         header.setFixedHeight(54)
-        header.setStyleSheet("background: #171B1E; border-bottom: 1px solid #3D464C;")
+        header.setStyleSheet("background: #D4E3EE; border-bottom: 3px solid #1F6FA8;")
         row = QHBoxLayout(header)
         row.setContentsMargins(18, 0, 14, 0)
         row.setSpacing(5)
 
         title = QLabel("TURBOJET CONTROL SYSTEM")
         title.setMinimumWidth(198)
-        title.setStyleSheet("font-size: 13px; font-weight: bold; color: #E1E5E7;")
+        title.setStyleSheet("font-size: 13px; font-weight: bold; color: #14202A;")
         row.addWidget(title)
 
         self.nav_buttons = []
@@ -151,15 +160,15 @@ class MainWindow(QMainWindow):
             button.setMinimumWidth(77 if index != 2 else 98)
             button.setStyleSheet("""
                 QPushButton {
-                    background: transparent; color: #9BA5AA; border: 0;
+                    background: transparent; color: #55626A; border: 0;
                     border-bottom: 2px solid transparent; padding: 8px 5px;
                     font-size: 9px; font-weight: bold;
                 }
                 QPushButton:checked {
-                    color: #7DB8DF; background: #252B30;
-                    border: 1px solid #70A9CF; border-bottom: 2px solid #70A9CF;
+                    color: #1F6FA8; background: #FFFFFF;
+                    border: 1px solid #1F6FA8; border-bottom: 2px solid #1F6FA8;
                 }
-                QPushButton:hover:!checked { color: #D1D7DA; }
+                QPushButton:hover:!checked { color: #1F2A30; }
             """)
             button.clicked.connect(lambda checked, page=index: self._switch_page(page))
             self.nav_buttons.append(button)
@@ -194,7 +203,7 @@ class MainWindow(QMainWindow):
         self.com_label.setStyleSheet("font-size: 9px; font-weight: bold;")
         row.addWidget(self.com_label)
         self.clock_label = QLabel()
-        self.clock_label.setStyleSheet("color: #A3ADB2; font-size: 9px;")
+        self.clock_label.setStyleSheet("color: #4A565D; font-size: 9px;")
         row.addWidget(self.clock_label)
         return header
 
@@ -207,12 +216,13 @@ class MainWindow(QMainWindow):
     def _card(title: str) -> tuple[QFrame, QVBoxLayout]:
         frame = QFrame()
         frame.setObjectName("card")
+        frame.setStyleSheet(f"QFrame#card {{ border-top: 3px solid {accent_for_title(title)}; }}")
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(8)
         heading = QLabel(title.upper())
         heading.setStyleSheet(
-            "font-size: 9px; font-weight: bold; color: #9BA5AA; letter-spacing: 1px;"
+            "font-size: 9px; font-weight: bold; color: #55626A; letter-spacing: 1px;"
         )
         layout.addWidget(heading)
         return frame, layout
@@ -220,17 +230,17 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _make_plot(title: str, unit: str | None = None) -> pg.PlotWidget:
         plot = pg.PlotWidget()
-        plot.setBackground("#292F34")
+        plot.setBackground("#F6F7F8")
         plot.showGrid(x=True, y=True, alpha=0.16)
-        plot.setLabel("bottom", "TIME", units="s", **{"color": "#AAB3B8"})
+        plot.setLabel("bottom", "TIME", units="s", **{"color": "#4A565D"})
         if unit:
-            plot.setLabel("left", title, units=unit, **{"color": "#AAB3B8"})
+            plot.setLabel("left", title, units=unit, **{"color": "#4A565D"})
         else:
-            plot.setLabel("left", title, **{"color": "#AAB3B8"})
+            plot.setLabel("left", title, **{"color": "#4A565D"})
         for axis_name in ("left", "bottom"):
             axis = plot.getPlotItem().getAxis(axis_name)
-            axis.setPen(pg.mkPen("#69747A"))
-            axis.setTextPen(pg.mkPen("#AAB3B8"))
+            axis.setPen(pg.mkPen("#6B777E"))
+            axis.setTextPen(pg.mkPen("#4A565D"))
         plot.getPlotItem().getAxis("bottom").enableAutoSIPrefix(False)
         plot.getPlotItem().setMenuEnabled(False)
         plot.getPlotItem().hideButtons()
@@ -240,7 +250,7 @@ class MainWindow(QMainWindow):
     def _value_label(size: int = 20) -> QLabel:
         label = QLabel("—")
         label.setStyleSheet(
-            f"font-size: {size}px; font-weight: bold; color: #E1E5E7;"
+            f"font-size: {size}px; font-weight: bold; color: #14202A;"
         )
         return label
 
@@ -278,11 +288,11 @@ class MainWindow(QMainWindow):
             self.overview_values[key] = value
         left_layout.addWidget(values_card, 2)
 
-        state_card, state_layout = self._card("Read-only status")
+        state_card, state_layout = self._card("Link status")
         self.overview_estop = QLabel("E-STOP (physical): UNKNOWN")
-        self.overview_estop.setStyleSheet("font-size: 11px; color: #B5BEC2;")
+        self.overview_estop.setStyleSheet("font-size: 11px; color: #3E4A51;")
         self.overview_link = QLabel("TELEMETRY: NO DATA")
-        self.overview_link.setStyleSheet("font-size: 11px; color: #B5BEC2;")
+        self.overview_link.setStyleSheet("font-size: 11px; color: #3E4A51;")
         state_layout.addWidget(self.overview_estop)
         state_layout.addWidget(self.overview_link)
         left_layout.addWidget(state_card, 1)
@@ -303,17 +313,17 @@ class MainWindow(QMainWindow):
             (0, "T1"), (1, "T2"), (2, "T3"), (3, "T4")
         ]])
         self.thermal_curve = self.thermal_plot.plot(
-            pen=pg.mkPen("#70A9CF", width=3),
+            pen=pg.mkPen("#1F6FA8", width=3),
             symbol="o",
             symbolSize=8,
-            symbolBrush="#D1D7DA",
-            symbolPen=pg.mkPen("#70A9CF", width=2),
+            symbolBrush="#1F2A30",
+            symbolPen=pg.mkPen("#1F6FA8", width=2),
         )
         thermal_layout.addWidget(self.thermal_plot, 1)
         self.derived_summary = QLabel(
             "ΔT chamber: —     ΔT chamber → turbine: —     Heat input: not configured"
         )
-        self.derived_summary.setStyleSheet("font-size: 10px; color: #B5BEC2;")
+        self.derived_summary.setStyleSheet("font-size: 10px; color: #3E4A51;")
         thermal_layout.addWidget(self.derived_summary)
         grid.addWidget(thermal_card, 1, 1)
 
@@ -326,13 +336,20 @@ class MainWindow(QMainWindow):
         self.overview_alarm_list = QListWidget()
         alarms_layout.addWidget(self.overview_alarm_list, 1)
         right_layout.addWidget(alarms_card, 1)
-        trend_card, trend_layout = self._card("Temperature trend")
-        self.overview_temp_plot = self._make_plot("TEMPERATURE", "°C")
-        self.overview_temp_plot.addLegend(offset=(8, 8))
-        self.overview_curves = self._add_temp_curves(self.overview_temp_plot)
-        trend_layout.addWidget(self.overview_temp_plot, 1)
-        right_layout.addWidget(trend_card, 1)
+        log_card, log_layout = self._card("Log")
+        self.action_log = ActionLog(self.commands)
+        log_layout.addWidget(self.action_log, 1)
+        clear_button = QPushButton("CLEAR VIEW")
+        clear_button.setMaximumWidth(90)
+        clear_button.setStyleSheet("font-size: 9px; padding: 3px 8px;")
+        clear_button.clicked.connect(self.action_log.clear)
+        log_layout.addWidget(clear_button, 0, Qt.AlignmentFlag.AlignRight)
+        right_layout.addWidget(log_card, 1)
         grid.addWidget(right, 0, 2, 2, 1)
+        self.control_panel = ControlPanel(self.commands)
+        self.control_panel.stop_requested.connect(self.shutdown_requested)
+        grid.addWidget(self.control_panel, 2, 0, 1, 3)
+        grid.setRowStretch(2, 0)
         return page
 
     def _build_temperatures_tab(self) -> QWidget:
@@ -349,10 +366,10 @@ class MainWindow(QMainWindow):
         for key in _TEMP_FIELDS:
             row = QHBoxLayout()
             name = QLabel(_TEMP_LABELS[key])
-            name.setStyleSheet("font-size: 10px; color: #B4BDC1;")
+            name.setStyleSheet("font-size: 10px; color: #3E4A51;")
             value = self._value_label(18)
             unit = QLabel("°C")
-            unit.setStyleSheet("font-size: 9px; color: #8F9A9F;")
+            unit.setStyleSheet("font-size: 9px; color: #5F6B73;")
             row.addWidget(name, 1)
             row.addWidget(value)
             row.addWidget(unit)
@@ -361,7 +378,7 @@ class MainWindow(QMainWindow):
             self.temperature_values[key] = value
         temp_note = QLabel("Limits not configured — values shown without status grading.")
         temp_note.setWordWrap(True)
-        temp_note.setStyleSheet("font-size: 9px; color: #9BA5AA;")
+        temp_note.setStyleSheet("font-size: 9px; color: #55626A;")
         temp_layout.addWidget(temp_note)
         temp_layout.addStretch()
         grid.addWidget(temp_card, 0, 0, 2, 1)
@@ -382,7 +399,7 @@ class MainWindow(QMainWindow):
             self.heat_estimate,
         ):
             label.setStyleSheet(
-                "font-size: 12px; font-weight: bold; color: #D4DADD; "
+                "font-size: 12px; font-weight: bold; color: #1F2A30; "
                 "padding: 8px;"
             )
             label.setWordWrap(True)
@@ -407,7 +424,7 @@ class MainWindow(QMainWindow):
         self.temperature_rpm_plot = self._make_plot("T3", "°C")
         self.temperature_rpm_plot.setLabel("bottom", "RPM")
         self.temperature_rpm_curve = self.temperature_rpm_plot.plot(
-            pen=pg.mkPen("#D29364", width=2), symbol="o", symbolSize=4
+            pen=pg.mkPen("#C2651A", width=2), symbol="o", symbolSize=4
         )
         rpm_plot_layout.addWidget(self.temperature_rpm_plot, 1)
         plots_layout.addWidget(rpm_plot_card, 1)
@@ -430,11 +447,11 @@ class MainWindow(QMainWindow):
             ("mq6_2_ppm", "GAS 2 — near engine"),
         ):
             item = QFrame()
-            item.setStyleSheet("background: #252B30; border: 1px solid #424B51;")
+            item.setStyleSheet("background: #FFFFFF; border: 1px solid #B8C0C5;")
             item_layout = QVBoxLayout(item)
             item_layout.setContentsMargins(10, 8, 10, 8)
             name = QLabel(title)
-            name.setStyleSheet("font-size: 10px; color: #AAB3B8;")
+            name.setStyleSheet("font-size: 10px; color: #4A565D;")
             value = self._value_label(24)
             value.setText("— ppm")
             item_layout.addWidget(name)
@@ -447,7 +464,7 @@ class MainWindow(QMainWindow):
             "Alarm state is supplied by the ESP32. No thresholds or safety actions are configured here."
         )
         gas_note.setWordWrap(True)
-        gas_note.setStyleSheet("font-size: 9px; color: #AAB3B8;")
+        gas_note.setStyleSheet("font-size: 9px; color: #4A565D;")
         gas_layout.addWidget(gas_note)
         gas_layout.addStretch()
         grid.addWidget(gas_card, 0, 0, 2, 1)
@@ -460,21 +477,21 @@ class MainWindow(QMainWindow):
             node.setAlignment(Qt.AlignmentFlag.AlignCenter)
             node.setMinimumHeight(72)
             node.setStyleSheet(
-                "background: #252B30; border: 1px solid #59636A; "
-                "color: #CBD2D5; padding: 5px; font-size: 9px;"
+                "background: #FFFFFF; border: 1px solid #8A959C; "
+                "color: #2F3A41; padding: 5px; font-size: 9px;"
             )
             pipeline.addWidget(node, 1)
             if label != "ENGINE":
                 arrow = QLabel("→")
-                arrow.setStyleSheet("font-size: 18px; color: #869198;")
+                arrow.setStyleSheet("font-size: 18px; color: #5F6B73;")
                 pipeline.addWidget(arrow)
         line_layout.addLayout(pipeline)
         line_layout.addStretch()
         disclaimer = QLabel(
-            "This diagram identifies monitored locations only. Valve, pump, spark and interlock states are not available in the read-only protocol."
+            "This diagram identifies monitored locations only. Valve, pump and spark states are shown only as ACKed commands in the CONTROL strip; telemetry v1 does not report them."
         )
         disclaimer.setWordWrap(True)
-        disclaimer.setStyleSheet("font-size: 9px; color: #AAB3B8;")
+        disclaimer.setStyleSheet("font-size: 9px; color: #4A565D;")
         line_layout.addWidget(disclaimer)
         grid.addWidget(line_card, 0, 1)
 
@@ -482,7 +499,7 @@ class MainWindow(QMainWindow):
         self.estop_safety = QLabel("PHYSICAL E-STOP: UNKNOWN")
         self.maf_safety = QLabel("MAF: —")
         for label in (self.estop_safety, self.maf_safety):
-            label.setStyleSheet("font-size: 14px; color: #D1D7DA;")
+            label.setStyleSheet("font-size: 14px; color: #1F2A30;")
             measures_layout.addWidget(label)
         measures_layout.addStretch()
         grid.addWidget(measures_card, 1, 1)
@@ -508,7 +525,7 @@ class MainWindow(QMainWindow):
             card, layout = self._card(title)
             plot = self._make_plot(title, unit)
             if key != "temperature":
-                plot.setLabel("left", unit, **{"color": "#AAB3B8"})
+                plot.setLabel("left", unit, **{"color": "#4A565D"})
             if key == "temperature":
                 plot.addLegend(offset=(8, 8))
                 self._all_temp_plot = plot
@@ -522,7 +539,7 @@ class MainWindow(QMainWindow):
                     "maf_g_s": ("maf_g_s",),
                     "mq6": ("mq6_1_ppm", "mq6_2_ppm"),
                 }[key]
-                colors = ("#70A9CF", "#D29364")
+                colors = ("#1F6FA8", "#C2651A")
                 for field, color in zip(fields, colors):
                     self._trend_curves[key][field] = plot.plot(
                         pen=pg.mkPen(color, width=2),
@@ -556,17 +573,17 @@ class MainWindow(QMainWindow):
     def _neutral_bar() -> QFrame:
         bar = QFrame()
         bar.setFixedHeight(9)
-        bar.setStyleSheet("background: #454E54; border: 0;")
+        bar.setStyleSheet("background: #C9CFD3; border: 0;")
         return bar
 
     @staticmethod
     def _value_row(title: str, unit: str, size: int):
         row = QHBoxLayout()
         name = QLabel(title)
-        name.setStyleSheet("font-size: 10px; color: #AAB3B8;")
+        name.setStyleSheet("font-size: 10px; color: #4A565D;")
         value = MainWindow._value_label(size)
         units = QLabel(unit)
-        units.setStyleSheet("font-size: 9px; color: #8F9A9F;")
+        units.setStyleSheet("font-size: 9px; color: #5F6B73;")
         row.addWidget(name, 1)
         row.addWidget(value)
         row.addWidget(units)
@@ -575,7 +592,7 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _add_temp_curves(plot: pg.PlotWidget):
         curves = {}
-        colors = ("#6EADD4", "#A9C6D9", "#D58B5A", "#C6AE76", "#6BA786")
+        colors = ("#1F6FA8", "#1B998B", "#D9822B", "#8C6D1F", "#7B5EA7")
         for key, color in zip(_TEMP_FIELDS, colors):
             curves[key] = plot.plot(
                 pen=pg.mkPen(color, width=2), name=key.upper()
@@ -584,10 +601,10 @@ class MainWindow(QMainWindow):
 
     def _set_banner(self, state: str, text: str):
         styles = {
-            "idle": "background: #30373C; color: #AFB8BC;",
-            "warning": "background: #493514; color: #E7B444;",
-            "critical": "background: #4B2525; color: #E77C70;",
-            "stale": "background: #4A3521; color: #E7B444;",
+            "idle": "background: #EEF0F2; color: #3E4A51;",
+            "warning": "background: #FFEFC2; color: #8A5A00;",
+            "critical": "background: #F9D6D2; color: #B3261E;",
+            "stale": "background: #FFE4C4; color: #8A5A00;",
         }
         self.alarm_banner.setStyleSheet(
             f"font-size: 10px; font-weight: bold; {styles[state]}"
@@ -629,6 +646,7 @@ class MainWindow(QMainWindow):
         self._last_connection_error = ""
         self._logger_error = ""
         self.reader = SerialTelemetryReader(port, baudrate, self)
+        self.commands.set_reader(self.reader)
         self.reader.telemetry_received.connect(self._on_telemetry)
         self.reader.connection_changed.connect(self._on_connection_changed)
         self.reader.protocol_error.connect(self._on_protocol_error)
@@ -639,10 +657,13 @@ class MainWindow(QMainWindow):
         self.reader.start()
 
     def _on_connection_changed(self, connected: bool, message: str):
+        if not connected:
+            self.commands.reset()
+        self.commands.note("ok" if connected else "warn", "CONNECTED" if connected else "DISCONNECTED")
         if connected:
             self._last_connection_error = ""
             self.com_label.setText("COM: CONNECTED")
-            self.com_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #76B893;")
+            self.com_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #1E7B45;")
             self.connect_button.setText("DISCONNECT")
             self.connect_button.setEnabled(True)
             self._connected_at = time.monotonic()
@@ -655,7 +676,7 @@ class MainWindow(QMainWindow):
                 self.footer.setText(f"DATA LOGGER ERROR: {error}")
         else:
             self.com_label.setText("COM: DISCONNECTED")
-            self.com_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #D87970;")
+            self.com_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #B3261E;")
             detail = f" — {self._last_connection_error}" if self._last_connection_error else ""
             self.footer.setText(f"COM: DISCONNECTED{detail}")
             self._connected_at = None
@@ -679,6 +700,7 @@ class MainWindow(QMainWindow):
         self.footer.setText(f"SERIAL / PROTOCOL ERROR: {message}")
 
     def _on_telemetry(self, telemetry: dict):
+        self.commands.update_telemetry(telemetry)
         sequence = telemetry["sequence"]
         if self._last_sequence == sequence:
             self.footer.setText(f"DUPLICATE TELEMETRY FRAME — SEQUENCE {sequence}")
@@ -798,14 +820,12 @@ class MainWindow(QMainWindow):
                 del history[:-1200]
 
         for curves in (
-            self.overview_curves,
             self.temperature_curves,
             self._all_temp_trend_curves,
         ):
             for field, curve in curves.items():
                 curve.setData(self._sample_index, self._histories[field])
         for plot in (
-            self.overview_temp_plot,
             self.temperature_plot,
             self._all_temp_plot,
         ):
@@ -846,11 +866,11 @@ class MainWindow(QMainWindow):
                     f"[{alarm['severity'].upper()}]"
                 )
                 if alarm["severity"] == "critical":
-                    item.setForeground(QColor("#E77C70"))
+                    item.setForeground(QColor("#B3261E"))
                 elif alarm["severity"] == "warning":
-                    item.setForeground(QColor("#E7B444"))
+                    item.setForeground(QColor("#8A5A00"))
                 else:
-                    item.setForeground(QColor("#70A9CF"))
+                    item.setForeground(QColor("#1F6FA8"))
                 alarm_list.addItem(item)
 
     def _add_alarm_history(self, alarm: dict, state: str):
@@ -876,6 +896,31 @@ class MainWindow(QMainWindow):
 
     def _update_clock(self):
         self.clock_label.setText(datetime.now().strftime("%d/%m/%Y  %H:%M:%S"))
+
+    def _confirm_shutdown(self):
+        answer = QMessageBox.question(
+            self,
+            "Shutdown sequence",
+            "Open the shutdown sequence?\n\nThis sends the STOP command to the ESP32.",
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.shutdown_requested.emit()
+
+    def attach_session(self, reader, logger, started_at: float):
+        """Recibe la conexión serial y el logger que ya abrió la ventana de arranque."""
+        self.reader = reader
+        self.logger = logger
+        self.commands.set_reader(reader)
+        self.reader.telemetry_received.connect(self._on_telemetry)
+        self.reader.connection_changed.connect(self._on_connection_changed)
+        self.reader.protocol_error.connect(self._on_protocol_error)
+        self.reader.finished.connect(self._on_reader_finished)
+        self.port_combo.setEditText(reader.port)
+        self.baud_combo.setCurrentText(str(reader.baudrate))
+        self._on_connection_changed(True, "")  # actualiza etiquetas; el logger ya estaba activo
+        self._session_started_at = started_at
+        self._connected_at = started_at
+        self.footer.setText(f"DATA LOGGER: ACTIVE   FILE: {logger.filepath}")
 
     def closeEvent(self, event):
         if self.reader is not None and self.reader.isRunning():

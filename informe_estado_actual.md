@@ -1,65 +1,85 @@
-# Informe de avance de la interfaz HMI del turborreactor
+# Informe de estado actual – HMI Turbojet
 
-**Fecha:** 4 de septiembre de 2026
+**Fecha de actualización:** 14 de noviembre de 2026
 
-> **Nota de vigencia:** el cuerpo histórico de este informe describe la versión con datos simulados. La implementación actual de recepción serial y su alcance de solo lectura se documentan en la sección [Estado actual de la implementación](#estado-actual-de-la-implementación) y en [SERIAL_PROTOCOL.md](SERIAL_PROTOCOL.md).
+## Resumen ejecutivo
 
-La interfaz desarrollada actualmente corresponde a un sistema HMI para la supervisión y operación de un turborreactor. El programa inicia con una pantalla de preparación y encendido, en la que se ejecuta una secuencia de verificaciones previas antes de habilitar el arranque del motor. Posteriormente, el usuario accede a la pantalla principal de operación.
+La interfaz HMI del turborreactor se encuentra en estado funcional de supervisión en tiempo real sobre telemetría serial proveniente de una ESP32-S3. La aplicación ya no depende de generación interna de datos ficticios para operar; en su estado actual actúa como cliente receptor de solo lectura, valida tramas JSON por línea, muestra alarmas reportadas por el origen externo y mantiene un registro de sesión por conexión.
 
-La aplicación está organizada de forma modular: el punto de entrada coordina la ventana de inicio, la ventana principal, la generación de datos y el registro de las sesiones; el estado del motor centraliza las variables y los límites de alarma; y los paneles y widgets separan la presentación de datos, los controles, las alarmas y las gráficas. Esta organización facilita modificar un componente sin afectar toda la interfaz y deja preparada la sustitución de los datos simulados por una fuente de comunicación real.
+La lógica de control y la protección del sistema siguen fuera del alcance de la HMI. La interfaz no emite comandos de arranque, parada, apagado, reset ni configuración, y no define umbrales de seguridad; exhibe únicamente la información que recibe del equipo de instrumentación/controlador externo.
 
-En la pantalla de inicio se presenta una lista de diez comprobaciones relacionadas con sensores, temperatura y presión del aceite, bomba de aceite, blower, sistema de combustible, posición de la válvula, sistema de ignición, cámara de combustión, temperatura y presión. Cada comprobación muestra su estado, el valor recibido del sensor y una indicación visual de progreso. La pantalla también incluye una secuencia de encendido, un resumen del estado general, el número de verificaciones aprobadas, una barra de progreso, el botón de inicio del motor y el botón de apagado de emergencia. El arranque permanece bloqueado hasta que las condiciones configuradas se cumplen.
+## Estructura y componentes actuales
 
-Las verificaciones se dividen en comprobaciones inmediatas y comprobaciones que esperan a que una variable alcance un rango o valor mínimo. Por ejemplo, se valida que los sensores respondan, que la temperatura del aceite esté entre 50 y 90 °C, que exista presión de aceite, que el flujo de aire sea suficiente, que la presión del combustible esté entre 1 y 6 bar y que la válvula tenga una apertura mínima del 10 %. En los casos que requieren espera se contempla un tiempo máximo, de forma que el operador pueda identificar un bloqueo o una condición anormal.
+El proyecto actual presenta la siguiente organización funcional:
 
-![Figura 1. Pantalla de inicio y secuencia de encendido](assets/secuencia_encendido.png)
+- `main.py`: punto de entrada de la aplicación.
+- `com/serial_reader.py`: lector serial en segundo plano con conexión, lectura de líneas y emisión de señales Qt.
+- `core/telemetry_protocol.py`: parser, validación de protocolo y normalización de sensores/alarma.
+- `core/data_logger.py`: registro CSV por sesión.
+- `ui/main_window.py`: interfaz principal, tabs, banner de alarmas, selector de puerto y actualización en tiempo real.
+- `widgets/hmi_visuals.py`: widgets visuales del proceso, medidores de RPM y elementos gráficos del HMI.
+- `assets/`: imágenes de la interfaz (bienvenida, secuencia de encendido y pantalla principal).
+- `logs/`: registros CSV de sesiones del sistema.
+- `tests/test_telemetry_protocol.py`: cobertura de validación del protocolo serial.
+- `SERIAL_PROTOCOL.md`: especificación del protocolo de comunicación y del formato de trama.
 
-*Figura 1. Pantalla de inicio con la lista de verificaciones previas, la secuencia de ignición y el estado de habilitación del motor.*
+## Estado funcional actual
 
-En la pantalla principal se concentra la operación y la supervisión del motor en tiempo real. La vista muestra las revoluciones por minuto, la temperatura de gases de escape, el flujo de combustible y la presión. También incorpora un indicador gráfico de RPM, una representación del ciclo Brayton mediante un diagrama P-v, una gráfica configurable de flujo de combustible y presión, un panel de alarmas y un panel de comandos. Desde esta pantalla se pueden ejecutar las acciones de parada, apagado de emergencia y reinicio de alarmas. La interfaz informa además el estado de comunicación, la hora, el tiempo de operación y el estado del registro de datos.
+### 1. Recepción serial
 
-La distribución prioriza la lectura rápida: las variables esenciales se ubican en el panel izquierdo, el indicador circular permite observar de inmediato el régimen de giro y la zona derecha concentra las alarmas y las acciones de operación. La codificación por color diferencia estados normales, advertencias y condiciones críticas. Las gráficas complementan los valores instantáneos con una lectura de tendencia y con la representación del ciclo termodinámico del motor.
+- Se conecta a un puerto COM configurable desde la interfaz.
+- El puerto se puede escanear y seleccionar desde la barra superior.
+- La lectura usa `pyserial` y acepta tramas JSON UTF-8 terminadas en `\n`.
+- La validación incluye:
+  - versionado (`version = 1`)
+  - tipo (`type = "telemetry"`)
+  - secuencia no negativa
+  - sensores requeridos (`t1_c`, `t2_c`, `t3_c`, `t4_c`, `t5_c`, `maf_g_s`, `rpm`, `mq6_1_ppm`, `mq6_2_ppm`)
+  - lista de alarmas con `code`, `severity` y `message`
+  - `status.estop_released` booleano o nulo
+  - rechazo de frames corruptos, vacíos, con valores no finitos o con alarmas inválidas
 
-La aplicación cuenta con una segunda vista de sistemas para consultar variables agrupadas en los sistemas principal, de combustible y de lubricación. Cada variable se presenta con su valor, unidad, barra de nivel y estado, clasificado como normal, advertencia o falla según los límites definidos para el motor.
+### 2. Interfaz HMI
 
-En esta vista se supervisan variables como temperatura, presión y flujo de admisión; temperatura y presión de combustión; velocidad del turbo; presión de sobrealimentación; nivel y presión del tanque; posición de la válvula; presión y temperatura del combustible; y variables de lubricación como presión, temperatura, flujo, nivel, velocidad de la bomba y caída de presión del filtro. Cada grupo tiene límites de advertencia y falla, por lo que la lectura no depende únicamente del valor numérico sino también de su interpretación operacional.
+- La ventana cuenta con cinco pestañas: `OVERVIEW`, `TEMPERATURES`, `FUEL & SAFETY`, `TRENDS` y `ALARMS`.
+- Se muestran temperaturas, caudal de aire, RPM, gases y sensores MQ6.
+- La interface presenta un banner de estado global de alarmas.
+- El estado de conexión se actualiza en tiempo real y se marca como desactualizado si no llega telemetría en 3 segundos.
+- Cuando no existe conexión serial, la aplicación indica claramente la ausencia de telemetría y no genera datos artificiales.
 
-![Figura 2. Pantalla principal de supervisión y control](assets/pantalla_principal.png)
+### 3. Registro de datos
 
-*Figura 2. Pantalla principal con telemetría, indicador de RPM, alarmas, comandos y gráficas de operación.*
+- El logger crea un archivo CSV por sesión conectada.
+- La salida registra secuencia y variables clave: T1–T5, MAF, RPM y MQ6-1/MQ6-2.
+- La sesión queda asociada a la conexión activa y se conserva para análisis posterior.
 
-Como antecedente de la evolución de la interfaz, se conserva la pantalla inicial de bienvenida, desde la cual el operador inicia la secuencia de preparación del sistema.
+### 4. Alcance de seguridad y control
 
-![Figura 3. Pantalla inicial de bienvenida](assets/pantalla_bienvenida.png)
+- La HMI solo recibe y presenta información.
+- No envía comandos a actuadores, ignición, combustible, apagado ni reinicio.
+- No reemplaza ni simula las protecciones reales del controlador ni del sistema de seguridad.
+- Las alarmas son solo informativas según el payload emitido por la ESP32.
 
-*Figura 3. Pantalla inicial de bienvenida y confirmación de las condiciones de seguridad.*
+## Validación realizada
 
-Como parte del funcionamiento actual, los datos de prueba son generados periódicamente para simular la telemetría del turborreactor. Esta fuente entrega variables de RPM, temperaturas, presiones, flujos, niveles, posición de válvulas y variables asociadas a los sistemas de combustible y lubricación. La arquitectura permite reemplazar posteriormente esta fuente de prueba por una comunicación con sensores o con el sistema de control real.
+Se ejecutó la validación disponible del proyecto con la suite de pruebas unitaria existente:
 
-La actualización de la interfaz se realiza mediante señales y eventos de Qt, lo que permite que la llegada de nuevos datos actualice simultáneamente los indicadores, los paneles, las alarmas y las gráficas sin bloquear la ventana principal. En el estado actual, la fuente es un generador de prueba con valores variables y aleatorios; por tanto, los resultados visualizados sirven para validar la interacción y la presentación, pero no representan todavía mediciones físicas del turborreactor.
+- comando: `C:\Users\Andres\Documents\Proyecto de grado\interfaz\venv\Scripts\python.exe -m unittest discover -s tests -q`
+- resultado: `10 tests OK`
 
-El sistema de alarmas evalúa los valores recibidos frente a límites centralizados. Entre las condiciones contempladas se encuentran temperatura elevada, bajo nivel o flujo de combustible, exceso de RPM y presión fuera de rango. Las alarmas se registran en el panel de la interfaz y pueden restablecerse desde el panel de comandos.
+## Archivo ZIP generado
 
-También se implementó un registrador de datos que crea un archivo CSV por sesión. En estos archivos se almacenan la fecha y hora, el tiempo transcurrido, las RPM, la temperatura EGT, el flujo de combustible y la presión. Actualmente se encuentran disponibles registros de sesiones en la carpeta `logs`, lo que permite conservar evidencia de las pruebas realizadas y revisar posteriormente el comportamiento de las variables principales.
+Se exportó el conjunto actual del proyecto en:
 
-El registro se inicia al abrir la aplicación, crea un archivo identificado con la fecha y hora de la sesión y escribe los datos recibidos con un intervalo aproximado de 0,1 segundos. Este mecanismo permite reconstruir la evolución de las variables principales durante una prueba y proporciona una base para incorporar posteriormente análisis, exportación o comparación entre sesiones.
+`C:\Users\Andres\Documents\Proyecto de grado\interfaz_actual.zip`
 
-## Línea de tiempo condensada
+Este ZIP contiene los documentos y carpetas actuales del proyecto, incluyendo la estructura principal del repositorio, el código de la HMI, el protocolo, tests, activos y registros.
 
-La evolución del proyecto puede resumirse en tres momentos: primero se estableció la estructura modular de la aplicación; después se incorporaron la generación de datos de prueba, el modelo de estado del motor, el sistema de alarmas y el registro CSV; finalmente se integraron las pantallas de inicio, supervisión, control, gráficas y consulta de sistemas. El estado actual es una interfaz funcional de demostración y validación, preparada para continuar con la integración de datos reales y pruebas de operación más amplias.
+## Referencias
 
-## Referencias de apoyo
-
-Las siguientes fuentes se utilizaron como referencia conceptual y técnica para documentar la interfaz y sus componentes:
-
-1. NASA Glenn Research Center. *Brayton Cycle*. Referencia sobre el ciclo termodinámico representado en el diagrama P-v: https://www.grc.nasa.gov/www/k-12/airplane/brayton.html
-2. The Qt Company. *Qt for Python Documentation*. Referencia para la construcción de interfaces, widgets, señales y eventos utilizados en la aplicación: https://doc.qt.io/qtforpython-6/
-3. Python Software Foundation. *csv — CSV File Reading and Writing*. Referencia para la generación y escritura de los archivos de registro de las sesiones: https://docs.python.org/3/library/csv.html
-
-Estas referencias respaldan los conceptos generales y las herramientas empleadas; los valores, límites, datos de prueba y distribución específica descritos en este informe corresponden al prototipo desarrollado para el proyecto.
-
-## Estado actual de la implementación
-
-La descripción anterior documenta la versión de demostración con datos simulados y controles de interfaz. La implementación actual reemplaza esa fuente por recepción serial de telemetría de solo lectura y presenta pestañas OVERVIEW, TEMPERATURES, FUEL & SAFETY, TRENDS y ALARMS, con un mimic del proceso, perfil térmico y banner de alarmas. El formato acordado para la ESP32-S3 está en [SERIAL_PROTOCOL.md](SERIAL_PROTOCOL.md). La interfaz muestra únicamente alarmas reportadas por la ESP32; no define umbrales, no envía comandos y no sustituye las protecciones independientes del controlador. Los perfiles de configuración quedan fuera de esta etapa.
-
-El registrador CSV actual guarda tiempo, secuencia y T1–T5, MAF, RPM y MQ6-1/MQ6-2 por sesión conectada. Sin conexión serial, la interfaz indica que no hay telemetría y no genera datos ficticios.
+- [SERIAL_PROTOCOL.md](SERIAL_PROTOCOL.md)
+- [main.py](main.py)
+- [com/serial_reader.py](com/serial_reader.py)
+- [core/telemetry_protocol.py](core/telemetry_protocol.py)
+- [ui/main_window.py](ui/main_window.py)
+- [tests/test_telemetry_protocol.py](tests/test_telemetry_protocol.py)

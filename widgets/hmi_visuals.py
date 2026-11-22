@@ -1,151 +1,219 @@
 import math
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont, QPainter, QPen
+from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 from PyQt6.QtWidgets import QWidget
+
+_BOX_FILL = QColor("#FFFFFF")
+_BOX_LINE = QColor("#8A959C")
+_PIPE = QColor("#59656C")
+_TEXT = QColor("#2F3A41")
+_VALUE = QColor("#14202A")
+_MUTED = QColor("#5F6B73")
+_TC = QColor("#1F6FA8")
+_GAS = QColor("#8C6D1F")
+_AIR = (QColor("#E6F0F8"), QColor("#4F83AD"))
+_COMB = (QColor("#FBE9D7"), QColor("#C97B2A"))
+_FUEL = (QColor("#FFF3D1"), QColor("#B7891F"))
+_OIL = (QColor("#E3F3E8"), QColor("#3E9B63"))
+
+
+def _fmt(value, decimals=1, unit=""):
+    if value is None:
+        return "—"
+    return f"{value:,.{decimals}f} {unit}".strip()
 
 
 class RPMGauge(QWidget):
-    def __init__(self, parent=None):
+    """Gauge de RPM. Sin límites configurados el arco es neutro (sin verde/amarillo/rojo)."""
+
+    START_ANGLE = 225
+    SPAN = 270
+
+    def __init__(self, max_rpm: float = 40000, caution_rpm: float | None = None,
+                 limit_rpm: float | None = None, parent=None):
         super().__init__(parent)
-        self._rpm: float | None = None
-        self.setMinimumSize(180, 170)
+        self.max_rpm = max_rpm
+        self.caution_rpm = caution_rpm
+        self.limit_rpm = limit_rpm
+        self._target = 0.0
+        self._shown = 0.0
+        self._has_value = False
+        self.setMinimumSize(180, 180)
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._animate)
+        self._timer.start(30)
 
     def set_value(self, value: float | None):
-        self._rpm = value
+        self._has_value = value is not None
+        self._target = 0.0 if value is None else max(0.0, min(float(value), self.max_rpm))
         self.update()
 
+    def _animate(self):
+        diff = self._target - self._shown
+        if abs(diff) > 0.5:
+            self._shown += diff * 0.2
+            self.update()
+
+    def _angle(self, rpm: float) -> float:
+        return self.START_ANGLE - (rpm / self.max_rpm) * self.SPAN
+
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.translate(self.width() / 2, self.height() / 2)
-        radius = max(20, min(self.width(), self.height()) / 2 - 18)
-        painter.setPen(QPen(QColor("#465158"), 9, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
-        painter.drawArc(
-            int(-radius), int(-radius), int(2 * radius), int(2 * radius),
-            225 * 16, -270 * 16,
-        )
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        size = min(self.width(), self.height())
+        radius = size / 2 - 8
+        p.translate(self.width() / 2, self.height() / 2)
 
-        if self._rpm is not None:
-            angle = 225 - min(max(self._rpm, 0) / 40000, 1) * 270
-            radians = math.radians(angle)
-            end_x = math.cos(radians) * (radius - 10)
-            end_y = -math.sin(radians) * (radius - 10)
-            painter.setPen(QPen(QColor("#70A9CF"), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            painter.drawLine(0, 0, int(end_x), int(end_y))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor("#AEB8BD"))
-            painter.drawEllipse(-5, -5, 10, 10)
+        p.setPen(QPen(QColor("#8A959C"), 3))
+        p.setBrush(QColor("#FFFFFF"))
+        p.drawEllipse(QPointF(0, 0), radius, radius)
 
-        painter.setPen(QColor("#E2E6E8"))
-        painter.setFont(QFont("Segoe UI", 19, QFont.Weight.DemiBold))
-        text = "—" if self._rpm is None else f"{self._rpm:,.0f}"
-        painter.drawText(-self.width() // 2, 20, self.width(), 30, Qt.AlignmentFlag.AlignCenter, text)
-        painter.setPen(QColor("#9CA6AB"))
-        painter.setFont(QFont("Segoe UI", 9))
-        painter.drawText(-self.width() // 2, 56, self.width(), 18, Qt.AlignmentFlag.AlignCenter, "RPM")
-        painter.setPen(QColor("#849096"))
-        painter.setFont(QFont("Segoe UI", 8))
-        for value in (0, 10, 20, 30, 40):
-            angle = math.radians(225 - value * 270 / 4)
-            x = math.cos(angle) * (radius - 25)
-            y = -math.sin(angle) * (radius - 25)
-            painter.drawText(int(x - 12), int(y - 6), 24, 12, Qt.AlignmentFlag.AlignCenter, str(value))
+        arc = QRectF(-radius + radius * 0.10, -radius + radius * 0.10, (radius * 0.90) * 2, (radius * 0.90) * 2)
+        width = max(5, radius * 0.07)
+        zones = [(0, self.max_rpm, "#AEB7BC")]
+        if self.caution_rpm is not None and self.limit_rpm is not None:
+            zones = [(0, self.caution_rpm, "#3E9B63"), (self.caution_rpm, self.limit_rpm, "#D9A21E"),
+                     (self.limit_rpm, self.max_rpm, "#C9483D")]
+        for start, end, color in zones:
+            p.setPen(QPen(QColor(color), width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+            p.drawArc(arc, int(self._angle(start) * 16), int(-(end - start) / self.max_rpm * self.SPAN * 16))
+
+        if zones[0][2] == "#AEB7BC" and self._shown > 0:
+            p.setPen(QPen(QColor("#1F6FA8"), width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+            p.drawArc(arc, int(self._angle(0) * 16), int(-self._shown / self.max_rpm * self.SPAN * 16))
+
+        ticks = 40
+        major_every = 10
+        label_font = QFont("Consolas", max(6, int(radius * 0.075)))
+        p.setFont(label_font)
+        for i in range(ticks + 1):
+            rpm = self.max_rpm * i / ticks
+            rad = math.radians(self._angle(rpm))
+            major = i % major_every == 0
+            length = radius * (0.13 if major else 0.07)
+            p.setPen(QPen(QColor("#1F2A30"), 2 if major else 1))
+            p.drawLine(QPointF((radius - length) * math.cos(rad), -(radius - length) * math.sin(rad)),
+                       QPointF(radius * math.cos(rad), -radius * math.sin(rad)))
+            if major:
+                tx = (radius * 0.76) * math.cos(rad)
+                ty = -(radius * 0.76) * math.sin(rad)
+                p.setPen(_TEXT)
+                p.drawText(QRectF(tx - 22, ty - 9, 44, 18), Qt.AlignmentFlag.AlignCenter, f"{rpm / 1000:g}k")
+
+        rad = math.radians(self._angle(self._shown))
+        p.setPen(QPen(QColor("#14202A") if self._has_value else QColor("#AEB7BC"), max(2, radius * 0.025)))
+        p.drawLine(QPointF(0, 0), QPointF(radius * 0.62 * math.cos(rad), -radius * 0.62 * math.sin(rad)))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#8A959C"))
+        p.drawEllipse(QPointF(0, 0), radius * 0.05, radius * 0.05)
+
+        p.setPen(_VALUE)
+        p.setFont(QFont("Consolas", max(9, int(radius * 0.17)), QFont.Weight.DemiBold))
+        text = f"{self._target:,.0f}" if self._has_value else "—"
+        p.drawText(QRectF(-radius * 0.4, radius * 0.22, radius * 0.8, radius * 0.22), Qt.AlignmentFlag.AlignCenter, text)
+        p.setPen(_MUTED)
+        p.setFont(QFont("Consolas", max(7, int(radius * 0.09))))
+        p.drawText(QRectF(-radius * 0.2, radius * 0.44, radius * 0.4, radius * 0.14), Qt.AlignmentFlag.AlignCenter, "RPM")
 
 
 class ProcessMimic(QWidget):
+    """Esquema tipo P&ID del motor con los puntos de medición y sus valores en vivo.
+
+    Los símbolos de equipo (bomba, tanque, solenoide, servo) son estáticos: el protocolo
+    de telemetría v1 no reporta su estado, así que no se dibuja ningún estado.
+    """
+
+    W, H = 660.0, 340.0
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._sensors: dict[str, float | None] = {}
-        self.setMinimumHeight(230)
+        self._s: dict = {}
+        self.setMinimumSize(420, 220)
 
     def set_sensors(self, sensors: dict):
-        self._sensors = dict(sensors)
+        self._s = dict(sensors)
         self.update()
 
+    # --- helpers de dibujo (coordenadas lógicas 660x340) ---
+    def _box(self, p, x, y, w, h, text, size=10, colors=None):
+        fill, line = colors or (_BOX_FILL, _BOX_LINE)
+        p.setPen(QPen(line, 1.5))
+        p.setBrush(fill)
+        p.drawRect(QRectF(x, y, w, h))
+        p.setPen(_TEXT)
+        p.setFont(QFont("Segoe UI", 1))
+        font = p.font(); font.setPixelSize(size); p.setFont(font)
+        p.drawText(QRectF(x, y, w, h), Qt.AlignmentFlag.AlignCenter, text)
+
+    def _text(self, p, x, y, w, h, text, size=10, color=_TEXT, bold=False, align=Qt.AlignmentFlag.AlignCenter):
+        font = QFont("Segoe UI"); font.setPixelSize(size); font.setBold(bold)
+        p.setFont(font); p.setPen(color)
+        p.drawText(QRectF(x, y, w, h), align, text)
+
+    def _pipe(self, p, x1, y1, x2, y2, arrow=False, dashed=False, color=_PIPE):
+        pen = QPen(color, 2.5 if color is not _PIPE else 2, Qt.PenStyle.DashLine if dashed else Qt.PenStyle.SolidLine)
+        p.setPen(pen)
+        p.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+        if arrow:
+            p.setBrush(color)
+            p.drawPolygon(QPolygonF([QPointF(x2, y2), QPointF(x2 - 8, y2 - 5), QPointF(x2 - 8, y2 + 5)]))
+
+    def _tag(self, p, cx, cy, name, value, color, diamond=False, value_above=True, unit="°C"):
+        p.setPen(QPen(color, 2))
+        p.setBrush(_BOX_FILL)
+        if diamond:
+            p.drawPolygon(QPolygonF([QPointF(cx, cy - 20), QPointF(cx + 20, cy), QPointF(cx, cy + 20), QPointF(cx - 20, cy)]))
+        else:
+            p.drawEllipse(QPointF(cx, cy), 19, 19)
+        self._text(p, cx - 19, cy - 10, 38, 20, name, 10, _VALUE, True)
+        ty = cy - 44 if value_above else cy + 21
+        self._text(p, cx - 50, ty, 100, 20, _fmt(value, 1, unit), 12, _VALUE, True)
+
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setFont(QFont("Segoe UI", 8))
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        scale = min(self.width() / self.W, self.height() / self.H)
+        p.translate((self.width() - self.W * scale) / 2, (self.height() - self.H * scale) / 2)
+        p.scale(scale, scale)
+        s = self._s
 
-        width = self.width()
-        height = self.height()
-        line_color = QColor("#77838A")
-        box_color = QColor("#2D3439")
-        text_color = QColor("#D2D8DB")
-        sensor_color = QColor("#70A9CF")
-        left = 25
-        top = int(height * 0.34)
-        box_h = max(42, int(height * 0.28))
-        gap = max(8, int(width * 0.018))
-        box_width = (width - 2 * left - 3 * gap) // 4
-        names = ("COMPRESSOR", "COMBUSTION\nCHAMBER", "TURBINE", "EXHAUST")
-        temperature_sensors = (
-            ("T1", "t1_c", 0, 0),
-            ("T2", "t2_c", 1, -32),
-            ("T3", "t3_c", 1, 32),
-            ("T4", "t4_c", 2, 0),
-        )
-        painter.setPen(QPen(line_color, 2))
-        painter.drawLine(left - 18, top + box_h // 2, left, top + box_h // 2)
-        painter.setPen(text_color)
-        painter.drawText(2, top + box_h // 2 - 8, 24, 16, Qt.AlignmentFlag.AlignCenter, "AIR")
+        # camino de aire
+        self._text(p, 0, 120, 85, 30, "AIR IN ▶", 10, _MUTED)
+        self._pipe(p, 70, 135, 95, 135, arrow=True, color=_AIR[1])
+        self._box(p, 95, 110, 55, 50, "MAF", colors=_AIR)
+        self._text(p, 70, 84, 105, 20, _fmt(s.get("maf_g_s"), 2, "g/s"), 12, _VALUE, True)
+        self._pipe(p, 150, 135, 170, 135, color=_AIR[1])
+        self._box(p, 170, 85, 100, 100, "COMPRESSOR", colors=_AIR)
+        self._pipe(p, 270, 135, 300, 135, arrow=True, color=_AIR[1])
+        self._box(p, 300, 85, 130, 100, "COMBUSTION\nCHAMBER", colors=_COMB)
+        self._pipe(p, 430, 135, 460, 135, arrow=True, color=_COMB[1])
+        self._box(p, 460, 85, 100, 100, "TURBINE", colors=_AIR)
+        self._pipe(p, 560, 135, 590, 135, arrow=True, color=_COMB[1])
+        self._text(p, 592, 120, 66, 30, "EXHAUST", 10, _MUTED)
 
-        for index, name in enumerate(names):
-            x = left + index * (box_width + gap)
-            rect = (x, top, box_width, box_h)
-            painter.setPen(QPen(line_color, 1))
-            painter.setBrush(box_color)
-            painter.drawRect(*rect)
-            painter.setPen(text_color)
-            painter.drawText(
-                x + 3, top + 5, box_width - 6, box_h - 10,
-                Qt.AlignmentFlag.AlignCenter, name,
-            )
-            if index < len(names) - 1:
-                painter.setPen(QPen(line_color, 2))
-                painter.drawLine(x + box_width, top + box_h // 2, x + box_width + gap, top + box_h // 2)
+        # eje, RPM y aceite
+        self._pipe(p, 220, 205, 520, 205, dashed=True)
+        self._text(p, 375, 187, 90, 16, "TURBO SHAFT", 9, _MUTED, align=Qt.AlignmentFlag.AlignLeft)
+        self._box(p, 480, 194, 60, 22, "RPM", 9)
+        self._text(p, 445, 220, 130, 22, _fmt(s.get("rpm"), 0, "rpm"), 12, _VALUE, True)
+        self._pipe(p, 210, 205, 210, 265, color=_OIL[1])
+        self._box(p, 170, 265, 80, 50, "OIL\nPUMP", colors=_OIL)
+        self._tag(p, 282, 290, "T5", s.get("t5_c"), _TC, value_above=False)
 
-        for tag, key, box_index, offset in temperature_sensors:
-            x = left + box_index * (box_width + gap)
-            center_x = x + box_width // 2 + offset
-            circle_y = top - 25
-            value = self._sensors.get(key)
-            value_text = "—" if value is None else f"{value:.0f}°C"
-            painter.setPen(QPen(sensor_color, 2))
-            painter.setBrush(box_color)
-            painter.drawEllipse(center_x - 15, circle_y - 15, 30, 30)
-            painter.setPen(text_color)
-            painter.drawText(
-                center_x - 14, circle_y - 7, 28, 14,
-                Qt.AlignmentFlag.AlignCenter, tag,
-            )
-            painter.setPen(sensor_color)
-            painter.drawText(
-                center_x - 30, circle_y - 32, 60, 12,
-                Qt.AlignmentFlag.AlignCenter, f"{tag} {value_text}",
-            )
+        # línea de combustible
+        self._pipe(p, 365, 185, 365, 270, color=_FUEL[1])
+        self._box(p, 350, 215, 30, 22, "SRV", 8, colors=_FUEL)
+        self._box(p, 350, 245, 30, 22, "SV", 8, colors=_FUEL)
+        self._box(p, 320, 270, 90, 55, "C3H8\nTANK", colors=_FUEL)
+        self._tag(p, 450, 292, "G1", s.get("mq6_1_ppm"), _GAS, diamond=True, value_above=False, unit="ppm")
+        self._tag(p, 540, 292, "G2", s.get("mq6_2_ppm"), _GAS, diamond=True, value_above=False, unit="ppm")
 
-        lower_y = top + box_h + 38
-        component_width = max(72, min(110, box_width))
-        component_gap = max(12, int(width * 0.04))
-        components = (
-            ("OIL", "PUMP", "T5", "t5_c"),
-            ("FUEL", "TANK", "G1", "mq6_1_ppm"),
-            ("GAS", "SENSOR", "G2", "mq6_2_ppm"),
-            ("SHAFT", "SENSOR", "RPM", "rpm"),
-        )
-        total_w = len(components) * component_width + (len(components) - 1) * component_gap
-        start_x = max(10, (width - total_w) // 2)
-        for index, (first, second, tag, key) in enumerate(components):
-            x = start_x + index * (component_width + component_gap)
-            painter.setPen(QPen(line_color, 1))
-            painter.setBrush(box_color)
-            painter.drawRect(x, lower_y, component_width, 36)
-            painter.setPen(text_color)
-            painter.drawText(x + 2, lower_y + 3, component_width - 4, 30, Qt.AlignmentFlag.AlignCenter, f"{first}\n{second}")
-            value = self._sensors.get(key)
-            unit = "°C" if key.endswith("_c") else "ppm" if "mq6" in key else "RPM"
-            text = "—" if value is None else f"{value:.0f} {unit}"
-            painter.setPen(sensor_color)
-            painter.drawText(x - 10, lower_y + 42, component_width + 20, 14, Qt.AlignmentFlag.AlignCenter, f"{tag}  {text}")
+        # temperaturas del ciclo
+        for cx, target_y, name, key in ((240, 85, "T1", "t1_c"), (325, 85, "T2", "t2_c"),
+                                        (415, 85, "T3", "t3_c"), (505, 85, "T4", "t4_c")):
+            self._pipe(p, cx, 74, cx, target_y)
+            self._tag(p, cx, 55, name, s.get(key), _TC)
+
+        for i, line in enumerate(("○ thermocouple   ◇ MQ6 gas", "▭ RPM sensor", "equipment states: not reported")):
+            self._text(p, 0, 2 + i * 14, 185, 14, line, 9, _MUTED, align=Qt.AlignmentFlag.AlignLeft)

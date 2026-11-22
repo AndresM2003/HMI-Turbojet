@@ -1,0 +1,11 @@
+timestamp,id,command,value,event,message,preview
+2026-11-18T05:22:26.546,1,control_mode,manual,SENT,,1
+2026-11-18T05:22:26.801,1,control_mode,manual,ACK,simulated,1
+2026-11-18T05:22:32.035,2,control_mode,auto,SENT,,1
+2026-11-18T05:22:32.286,2,control_mode,auto,ACK,simulated,1
+2026-11-18T05:22:55.821,3,control_mode,manual,SENT,,1
+2026-11-18T05:22:56.068,3,control_mode,manual,ACK,simulated,1
+2026-11-18T05:23:25.865,4,fuel_servo,55,SENT,,1
+2026-11-18T05:23:26.114,4,fuel_servo,55,ACK,simulated,1
+2026-11-18T07:19:44.801,1,stop,,SENT,,1
+2026-11-18T07:19:45.065,1,stop,,ACK,simulated,1
